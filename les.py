@@ -1,6 +1,10 @@
 import requests
 import json
 from nvdbtools.klasser import Veglenkesekvens, Vegobjekt
+from ratelimit import limits
+import ratelimit
+import backoff
+import time
 
 config = {# 'base_url': 'https://www.vegvesen.no/nvdb/api/v3/',
     'base_url': 'https://nvdbapiles-v3.test.atlas.vegvesen.no/',
@@ -8,17 +12,23 @@ config = {# 'base_url': 'https://www.vegvesen.no/nvdb/api/v3/',
     'User-Agent': 'nvdbtools - alfa'
 }
 
+@backoff.on_exception(backoff.expo, ratelimit.exception.RateLimitException, max_time=60)
+@limits(10, 1) # max 10 calls per 1 sec
 def hent_json(url):
     headers = {'content-type': 'application/json','Accept': 'application/json',
                'X-Client': config['X-Client'], 'User-Agent': config['User-Agent']}
-    response = requests.get(url, headers=headers)
-    data = json.loads(response.text)
-    return data
+    for i in range(5):
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return json.loads(response.text)
+        print(url)
+        time.sleep(10 + i*30)
+    raise ConnectionError(response.status_code)
 
 def veglenkesekvens(sekvens_nr):
     return enkeltelement(Veglenkesekvens, 'vegnett/veglenkesekvenser/', sekvens_nr)
 
-def veglenkesekvenser(params = {'inkluder': 'alle'}):
+def veglenkesekvenser(params = {}):
     return samling(Veglenkesekvens, 'vegnett/veglenkesekvenser?', params)
 
 def vegobjekt(kat_id, obj_id):
